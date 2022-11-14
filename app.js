@@ -45,31 +45,35 @@ const messagesSchema = joi.object({
 //Routes
 
 app.post("/participants", async (req, res) => {
-    const { name } = req.body;
-    const validation = userSchema.validate(name, { abortEarly: false });
-    if (validation.error) {
-        const error = validation.error.details.map(error => error.message);
-        res.status(422).send(error);
-        return
-    }
-    const VerifyUser = participantsColl.findOne({ name: name })
-    if (VerifyUser) {
-        res.sendStatus(409).send({ message: 'Nome já está sendo utilizado. Escolha um diferente'});
-        return
-    }
-
+    const user = req.body;
     try {
-        await participantsColl.insertOne({ name: name, lastStatus: Date.now() });
-        await messagesColl.insertOne({ from: name, to: 'Todos', text: 'entra na sala...', type: 'status', time: dayjs.format('HH:MM:SS') });
+        const userTime = Date.now();
+        const timeFormatted = dayjs(userTime).format("HH:mm:ss")
+        const validation = userSchema.validate(user, { abortEarly: false });
+        if (validation.error) {
+            const error = validation.error.details.map(error => error.message);
+            res.status(422).send(error);
+            return
+        }
+
+        const VerifyUser = await participantsColl.findOne({ name: user.name })
+
+        if (VerifyUser) {
+            res.sendStatus(409).send({ message: 'Nome já está sendo utilizado. Escolha um diferente' });
+            return
+        }
+
+        await participantsColl.insertOne({ ...user, lastStatus: Date.now() });
+        await messagesColl.insertOne({ from: user.name, to: 'Todos', text: 'entra na sala...', type: 'status', time: timeFormatted });
         res.sendStatus(201);
-    } catch {
+    } catch (err) {
         res.status(500).send(err);
     }
 })
 
 app.get("/participants", async (req, res) => {
     try {
-        const participantsdata = await participantsColl.find.toArray();
+        const participantsdata = await participantsColl.find({}).toArray();
         res.status(201).send(participantsdata);
     } catch {
         res.sendStatus(500);
@@ -77,19 +81,19 @@ app.get("/participants", async (req, res) => {
 })
 
 app.post("/messages", async (req, res) => {
-    const { to, text, type } = req.body;
-    const from = req.headers.user;
+    const message = req.body;
+    const { user } = req.headers;
     const time = dayjs().format("HH:mm:ss");
-    const validation = messagesSchema.validate({from, to, text, type }, {abortEarly: false});
+    const validation = messagesSchema.validate(message, { abortEarly: false });
     if (validation.error) {
         res.status(422).send(validation.error.details);
         return
     }
 
-    try{
-        await messagesColl.insertOne({from, to, text, type, time});
+    try {
+        await messagesColl.insertOne({...message, from: user, time: time});
         res.sendStatus(201);
-        
+
     } catch (err) {
         res.status(500).send(err);
     }
@@ -98,9 +102,9 @@ app.post("/messages", async (req, res) => {
 app.get("/messages", async (req, res) => {
     const limit = parseInt(req.query.limit);
     const user = req.headers.user;
-    if (limit){
+    if (limit) {
         try {
-            const findmessage = await messagesColl.find({$or: [{to: user, type: "private_message"},{type:"message"}]}).toArray();
+            const findmessage = await messagesColl.find({ $or: [{ to: user, type: "private_message" }, { type: "message" }] }).toArray();
             res.status(200).send(findmessage.slice(0, limit));
         } catch (err) {
             res.status(500).send(err)
@@ -109,18 +113,34 @@ app.get("/messages", async (req, res) => {
 })
 
 app.post("/status", async (req, res) => {
-    const user = req.headers.user;
-    try{
-        const participant = await participantsColl.findOne({name: user});
-        if (participant === null){
+    const user = req.get("User");
+    try {
+        const participant = await participantsColl.findOne({ name: user });
+        if (participant === null) {
             res.sendStatus(404);
         } else {
-            await participantsColl.updateOne({ _id: stats._id}, {$set: {lastStatus: Date.now()}});
+            await participantsColl.updateOne({ _id: stats._id }, { $set: { lastStatus: Date.now() } });
             res.sendStatus(200);
         }
-    } catch (err){
+    } catch (err) {
         res.status(500).send(err);
     }
 })
+
+/* setInterval(async () => {
+    try {
+        const date = Date.now();
+        const usersonline = await participantsColl.find().toArray();
+        usersonline.forEach(async (e) => {
+            if (date - e.lastStatus > 10000) {
+                await messagesColl.insertOne({ from: e.name, to: "Todos", text: "sai da sala...", type: "status", time: dayjs().format("HH:MM:SS") })
+            }
+            await usersonline.deleteOne({ name: e.name });
+        });
+    } catch (err) {
+        console.log(err);
+    }
+}, 15000); */
+
 
 app.listen(5000, () => console.log('Server running on port 5000'))
