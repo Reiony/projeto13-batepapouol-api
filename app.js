@@ -34,6 +34,12 @@ const userSchema = joi.object({
     name: joi.string().min(1).required()
 })
 
+const messagesSchema = joi.object({
+    to: joi.string().required(),
+    text: joi.string().required(),
+    type: joi.string().valid("message", "private_message").required()
+})
+
 //Routes
 
 app.post("/participants", async (req, res) => {
@@ -46,7 +52,7 @@ app.post("/participants", async (req, res) => {
     }
     const VerifyUser = participantsColl.findOne({ name: name })
     if (VerifyUser) {
-        res.sendStatus(409)
+        res.sendStatus(409).send({ message: 'Nome já está sendo utilizado. Escolha um diferente'})
         return
     }
 
@@ -61,19 +67,33 @@ app.post("/participants", async (req, res) => {
 
 app.get("/participants", async (req, res) => {
     try {
-        const participantsdata = await participantsColl.find.toArray()
-        res.status(201).send(participantsdata)
+        const participantsdata = await participantsColl.find.toArray();
+        res.status(201).send(participantsdata);
     } catch {
-        res.sendStatus(500)
+        res.sendStatus(500);
     }
 })
 
 app.post("/messages", async (req, res) => {
+    const { to, text, type } = req.body;
+    const from = req.headers.user;
+    const time = dayjs().format("HH:mm:ss")
+    const validation = messagesSchema.validate({from, to, text, type }, {abortEarly: false})
+    if (validation.error) {
+        res.status(422).send(validation.error.details);
+        return
+    }
 
+    try{
+        await messagesColl.insertOne({from, to, text, type, time})
+        res.sendStatus(201)
+        
+    } catch (err) {
+        res.sendStatus(500)
+    }
 })
 
 app.get("/messages", async (req, res) => {
-
 })
 
 app.post("/status", async (req, res) => {
